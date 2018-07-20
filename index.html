@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+
+	<title>Visualization Theme Builder</title>
+	<script src="https://cdn.jsdelivr.net/npm/vue@2.5.16/dist/vue.js"></script>
+
+	<style>
+		body { padding: 0 32px 32px; font-family: Arial, Helvetica, sans-serif; }
+		.cell {
+			display: inline-block;
+			width: 50px;
+			height: 25px;
+			margin-right: 0;
+		}
+
+		.color-preview { display: inline-block; width: 32px; height: 16px; }	
+
+		.json { border: 1px solid #ccc; background-color: #eee; padding: 16px; }
+
+		.load { border: 1px solid #ccc; background-color: #eee; padding: 16px; margin-bottom: 32px; }
+
+		.gradient { position: relative; }		
+		 .gradient-boundary { position: absolute; z-index: 1; top: -8px; height: 66px; margin: 0 0 4px 0; border: 1px dotted #333; }
+
+		 h1 {  }
+		 h1 small { display: block; font-size: 16px; }
+	</style>
+</head>
+
+<body>
+
+	<main id="app">
+
+		<h1>Visualization Color Palette Generator
+			<small><a href="https://blog.graphiq.com/finding-the-right-color-palettes-for-data-visualizations-fcd4e707a283" target="_blank">https://blog.graphiq.com/finding-the-right-color-palettes-for-data-visualizations-fcd4e707a283</a></small>
+		</h1>
+
+		<div class="load">
+			<p>Restore a previous palette using the created <code>_hash</code>.</p>
+			<textarea v-model="hashState" style="width: 500px" @keypress.enter="load" rows="5"></textarea><br />
+			<button type="button" @click="load">Load</button>
+		</div>
+
+
+		Palette iterations<br />
+		<input type="number" v-model="paletteIterations" @input="onChange" /><br /><br />
+
+		Canvas width<br />
+		<input type="number" v-model="gradientFidelity" @input="onChange" /><br /><br />
+
+		Gradient boundary<br />
+		<input type="range" min="0" max="0.5" step="0.01" v-model="gradientBoundary" @input="onChange" width="200" /> {{gradientBoundary}}<br /><br />
+
+		Colors (in hexadecimal)<br />
+		<div v-for="(color, index) in colors" :key="index">
+			<button type="button" @click="addColor(index)">+</button>
+			<input type="text" v-model="colors[index]" @input="onChange" />
+			<input type="color" v-model="colors[index]" @input="onChange" />
+			<button type="button" @click="removeColor(index)" v-if="colors.length > 2">-</button>
+		</div>
+		<button type="button" @click="addColor(colors.length)">+</button>
+
+		<br />
+		<br />
+
+		<button type="button" @click="submit">Render</button>
+		<br /><br />
+
+		<hr />
+
+		<h2>Gradient</h2>
+		<div class="gradient" :style="{ width: gradientFidelity + 'px' }">
+			<div class="gradient-boundary" :style="{ left: (gradientFidelity * gradientBoundary) + 'px', width: (gradientFidelity * (1 - (gradientBoundary * 2))) + 'px' }"></div>
+			<canvas ref="canvas" :width="gradientFidelity" height="50"></canvas>
+		</div>
+
+		<h2>Palette</h2>
+		<div id="rows">
+			<div class="row" v-for="(palette, index) in palettes" :key="index">
+				<div class="cell" v-for="(iteration, index) in palette" :key="index" :style="{ 'background-color': iteration }"></div>
+			</div>
+		</div>
+
+		<h2>Module</h2>
+		<div class="json">
+			<code>export default {{json}};</code>
+		</div>
+		
+	</main>
+
+
+	<script>
+		new Vue({
+			el: '#app',
+			data: {
+				hashState: null,
+				paletteIterations: 12,
+				gradientFidelity: 500,
+				gradientBoundary: 0.09,
+				colors: ['#f9e39b', '#6CFFC0', '#14BEC8', '#0066C3', '#0000AA'],
+				palettes: [],
+				json: {}
+			},
+			mounted() {
+				this.submit();
+			},
+			methods: {
+				load() {
+					if(!this.hashState) return;
+					var json = JSON.parse(this.hashState);
+
+					this.paletteIterations = json.paletteIterations;
+					this.gradientFidelity = json.gradientFidelity;
+					this.gradientBoundary = json.gradientBoundary;
+					this.colors = json.colors;
+
+					this.hashState = null;
+					this.submit();
+				},
+				addColor(index) {
+					this.colors.splice(index, 0, '');
+					this.submit();
+				},
+				removeColor(index) {
+					if(this.colors.length <= 2) return;
+					this.colors.splice(index, 1);
+
+					this.submit();
+				},
+
+				onChange() {
+					this.submit();
+				},
+				submit() {
+					this.$nextTick(() => {
+						this.renderCanvas();
+						this.renderPalette();
+						this.compileJson();
+					});
+				},
+				renderCanvas() {
+					var c = this.$refs.canvas;
+					var ctx = c.getContext("2d");
+					ctx.clearRect(0, 0, c.width, c.height);
+
+					// Define the gradient
+					var grd = ctx.createLinearGradient(0, 0, c.width, 0);
+					grd.addColorStop(0, "#ffffff");
+
+					var stops = this.colors.length + 1;
+					for(var i = 0; i < this.colors.length; i++) {
+						var stop = i + 1;
+						grd.addColorStop((1 / stops) * stop, this.colors[i]);
+					}
+
+					grd.addColorStop(1, "#000000");
+
+					ctx.fillStyle = grd;
+					ctx.fillRect(0, 0, c.width, 100);
+				},
+				renderPalette() {
+					this.palettes = [];
+
+					var c = this.$refs.canvas;
+					var ctx = c.getContext("2d");
+
+					var colorsWidth = c.width;
+					var count = this.paletteIterations;
+					var index = 0;
+
+					do {
+						index++;
+
+						var palette = [];
+
+						var iterations = index;
+						for (var i = 1; i <= iterations; i++) {
+							var x = (colorsWidth * this.gradientBoundary) + (((colorsWidth * (1 - (this.gradientBoundary * 2))) / (index + 1)) * i);
+							var p = ctx.getImageData(x, 0, 1, 1).data;
+							var hex = "#" + ("000000" + this.rgbToHex(p[0], p[1], p[2])).slice(-6);
+
+							palette.push(hex);
+						}
+
+						this.palettes.push(palette);
+					}
+					while (index < count);
+				},
+				compileJson() {
+					var json = {};
+
+					json._hash = {
+						paletteIterations: this.paletteIterations,
+						gradientFidelity: this.gradientFidelity,
+						gradientBoundary: this.gradientBoundary,
+						colors: this.colors
+					};
+
+					for(var i = 0; i < this.palettes.length; i++) {
+						var palette = this.palettes[i];
+						json[i + 1] = palette;
+					}
+
+					this.json = json;
+				},
+
+				// Helpers
+				rgbToHex: function(r, g, b) {
+					if (r > 255 || g > 255 || b > 255)
+						throw "Invalid color component";
+					return ((r << 16) | (g << 8) | b).toString(16);		
+				}
+			}
+		});
+	</script>
+
+</body>
+
+</html>
